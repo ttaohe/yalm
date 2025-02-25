@@ -226,7 +226,7 @@ private:
   float* _rms_ffn_weight = nullptr; // (dim)
 
   // weights for self-attention matmuls
-  void* _wq = nullptr; // (n_heads * head_dim, dim)
+  void* _wq = nullptr; // (n_heads * head_dim, dim)   dim = 4096?
   void* _wk = nullptr; // (n_kv_heads * head_dim, dim)
   void* _wv = nullptr; // (n_kv_heads * head_dim, dim)
   void* _wo = nullptr; // (dim, n_heads * head_dim)

@@ -1,5 +1,5 @@
 #include "model.h"
-
+#include <iostream>
 #include <cuda_fp16.h>
 #include "fmt/format.h"
 
@@ -287,6 +287,7 @@ void fused_matmul_add_residuals(const T* A, const float* x, int n, int d, float*
   }
 }
 
+// 先分别计算qkv，并做截断处理
 template <typename T>
 __global__
 void fused_qkv_matmul_clip(
@@ -302,32 +303,32 @@ void fused_qkv_matmul_clip(
   float* k_out,     // (kv_dim,)
   float* v_out      // (kv_dim,)
 ) {
-  // Each warp handles one row of either Q, K, or V output
-  int warp_id = (blockIdx.x * blockDim.x + threadIdx.x) / warpSize;
+  // Each warp handles one row of either Q, K, or V output   一个warp处理一行得到q的一个元素，这是为了利用更多的线程计算，so一个warp里的线程计算的wq是同一个
+  int warp_id = (blockIdx.x * blockDim.x + threadIdx.x) / warpSize;   // 线程数等于 (q_head_dim + k_head_dim + v_head_dim) * 32， warp_id范围 0 ~ (q_dim + 2*kv_dim)
   int total_rows = q_dim + 2 * kv_dim;
   if (warp_id >= total_rows) return;
   
   // Determine which matrix (Q, K, or V) we're computing
   const T* w;
   float* out;
-  if (warp_id < q_dim) {
+  if (warp_id < q_dim) {   // 0 ~ q_dim-1 个warp处理Q  q_dim ~ q_dim+kv_dim-1 个warp处理K  q_dim+kv_dim ~ q_dim + 2*kv_dim -1个warp处理Q 
     // Computing Q
     w = wq + warp_id * dim;
     out = q_out + warp_id;
   } else if (warp_id < q_dim + kv_dim) {
     // Computing K
-    w = wk + (warp_id - q_dim) * dim;
+    w = wk + (warp_id - q_dim) * dim;  // (warp_id - q_dim) 是k_warp_id的起始id
     out = k_out + (warp_id - q_dim);
   } else {
     // Computing V
-    w = wv + (warp_id - q_dim - kv_dim) * dim;
+    w = wv + (warp_id - q_dim - kv_dim) * dim;  // (warp_id - q_dim - kv_dim) 是v_warp_id的起始id
     out = v_out + (warp_id - q_dim - kv_dim);
   }
 
   // Compute matrix multiplication for this row
   // Since block is 1-dimensional, thread ID is same as threadIdx.x,
   // and warp partitions thread IDs
-  int offset = threadIdx.x % warpSize;
+  int offset = threadIdx.x % warpSize;  // 
   float row_sum = matmul_row(w, x, offset, dim);
   // Write result with clipping
   if (offset == 0) {
@@ -743,9 +744,10 @@ void Block::_block_cuda(
     }
   }
   
-  int q_dim = c.n_heads * c.head_dim;
-  int kv_dim = c.n_kv_heads * c.head_dim;
+  int q_dim = c.n_heads * c.head_dim;     // 运用GQA 32个Q head  每一个block都有32个Q head 因此hidden_size = 32 * 128 = 4096
+  int kv_dim = c.n_kv_heads * c.head_dim;  // GQA mistral 7B模型里group size为4，所以config里记录了有8个KV head
 
+  // qkv matmuls for this position
   {
     // qkv matmuls for this position
     // some models require clipping qkv values
@@ -1121,6 +1123,7 @@ void Model::_forward_cuda(InferenceState& s, int token, int pos, InferenceMode m
   CUDA_CHECK(cudaGetLastError()); // check for kernel launch errors
 }
 
+// 整个建图过程，在add_or_update_kernel_node函数里根据graph状态is_created 判断是exec还是build
 void Model::_forward_cuda_build_graph(InferenceState& s, int token, int pos, InferenceMode mode) {
 #define STATIC_KERNEL(x) if (!s.graph().is_created) x;
   const Config& c = *config;
@@ -1162,7 +1165,6 @@ void Model::_forward_cuda_build_graph(InferenceState& s, int token, int pos, Inf
   int kv_sink = pos >= c.max_seq_len ? KV_SINKS : 0;
   int kv_pos = kv_sink + (pos - kv_sink) % (c.max_seq_len - kv_sink);
   int kv_len = pos >= c.max_seq_len ? c.max_seq_len : pos + 1;
-  
   // forward all layers in order
   for (auto b : blocks) {
     b->block(s, pos, kv_sink, kv_pos, kv_len);

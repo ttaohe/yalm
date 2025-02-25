@@ -82,7 +82,7 @@ void run_completion(
   // On CPU, this ensures all tensors are loaded into memory via mmap.
   // On GPU, this ensures all tensors are loaded into device memory and 
   // kernels are compiled + instantiated.
-  model.forward(state, 0, 0);
+  model.forward(state, 0, 0);  // 从这里进入编译cuda graph, 根据graph的状态 is_created 判断是进入build or exec
 
   std::vector<int> encoding;
   {
