@@ -292,7 +292,7 @@ InferenceState::InferenceState(const std::shared_ptr<Config> config):
   _q = new float[config->n_heads * config->head_dim]();
   _k = new float[config->n_kv_heads * config->head_dim]();
   _v = new float[config->n_kv_heads * config->head_dim]();
-  _att = new float[config->n_heads * config->max_seq_len]();
+  _att = new float[config->n_heads * config->max_seq_len]();   // 一开始初始化给att申请了最大空间
   _logits = new float[config->vocab_size]();
   if (config->n_experts > 0) {
     _moe_weights = new float[config->n_experts]();

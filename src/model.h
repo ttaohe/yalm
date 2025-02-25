@@ -88,7 +88,7 @@ struct InferenceState {
   float* x() const { return _x; }
   float* xb() const { return _xb; }
   float* xb(int head) const { return _xb + _config->head_dim * head; }
-  // TODO: do we need xb2?
+  // TODO: do we need xb2?  Maybe Not
   float* xb2() const { return _xb2; }
   float* xb2(int head) const { return _xb2 + _config->head_dim * head; }
   float* hb() const { return _hb; }

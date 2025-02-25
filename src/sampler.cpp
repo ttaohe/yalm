@@ -1,5 +1,5 @@
 #include "sampler.h"
-
+#include <iostream>
 #include <cfloat>
 #include <cstdlib>
 
@@ -61,5 +61,6 @@ int Sampler::sample(const InferenceState& s, float temperature) {
       return i;
     }
   }
+  std::cout << "Top p no activated!" << std::endl;
   return vocab_size - 1;
 }

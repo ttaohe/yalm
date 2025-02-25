@@ -62,7 +62,7 @@ void run_completion(
   YALMData model_data;
   model_data.from_file(checkpoint_path);
   Model model(model_data, context);
-  InferenceState state(model.config);
+  InferenceState state(model.config);  // 推理中间激活
   Sampler sampler(model.config, get_timestamp_ms());
   Tokenizer tokenizer(model_data);
 

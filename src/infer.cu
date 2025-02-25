@@ -328,7 +328,7 @@ void fused_qkv_matmul_clip(
   // Compute matrix multiplication for this row
   // Since block is 1-dimensional, thread ID is same as threadIdx.x,
   // and warp partitions thread IDs
-  int offset = threadIdx.x % warpSize;  // 
+  int offset = threadIdx.x % warpSize;  // 每个线程所在的偏移量
   float row_sum = matmul_row(w, x, offset, dim);
   // Write result with clipping
   if (offset == 0) {
@@ -833,7 +833,15 @@ void Block::_block_cuda(
     s.graph().add_or_update_kernel_node(fmt::format("{}:rotate_sink_tokens", _layer_i), params, s.stream());
   }
   
+  // TODO: how to use flash attention accelarate naive softmax?
   // multihead attention: dot products and softmax
+  // 形状推导 感觉不需要第二次激活s.xb2()
+  // fused_qkv_matmul_clip(s.x()) --> s.q(), s.k(), s.v();
+  // fused_rope_and_cache_update(s.q(), s.k(), s.v()) --> s.q(), s.k(), s.v();
+  // attn_dot(q, kb) --> s.att();
+  // attn_softmax(s.att()) --> s.att();
+  // attn_mix(s.att(), vb) --> s.xb();
+  // fused_matmul_add_residuals(s.xb(), s.x()) --> s.xb();
   {
     dim3 tpb;
     tpb.x = warp_size;
@@ -898,7 +906,8 @@ void Block::_block_cuda(
     params.sharedMemBytes = 0;
     params.func = reinterpret_cast<void*>(att_mix);
     float* att = s.att();
-    float* xb2 = s.xb2();
+    // float* xb2 = s.xb2();
+    float* xb2 = s.xb();
     void* kernelParams[] = {
       &vb,
       &att,
@@ -917,8 +926,11 @@ void Block::_block_cuda(
   // final matmul projection and residual back:
   // x <- wo(...) + x
   STATIC_KERNEL((fused_matmul_add_residuals<<<c.dim/32, warp_size*32, 0, s.stream()>>>(
-    wo<T>(), s.xb2(), q_dim, c.dim, s.x()
+    wo<T>(), s.xb(), q_dim, c.dim, s.x()
   )));
+  // STATIC_KERNEL((fused_matmul_add_residuals<<<c.dim/32, warp_size*32, 0, s.stream()>>>(
+  //   wo<T>(), s.xb2(), q_dim, c.dim, s.x()
+  // )));
   
   // ffn pre-norm
   switch (c.norm_type) {
@@ -1113,7 +1125,7 @@ void Model::_forward_cuda(InferenceState& s, int token, int pos, InferenceMode m
   // of kernel dispatches.
   g.wrap([&]() {
     _forward_cuda_build_graph(s, token, pos, mode);
-  }, s.stream());
+  }, s.stream());  // 每个token都会建一次图)(真正建图是在第一次，其后都是加载参数给graph并执行) set一次param
 
   g.launch(s.stream());
   
@@ -1169,7 +1181,7 @@ void Model::_forward_cuda_build_graph(InferenceState& s, int token, int pos, Inf
   for (auto b : blocks) {
     b->block(s, pos, kv_sink, kv_pos, kv_len);
   }
-
+  // 在prefill阶段只做到block输出就可以停止，合并KV cache，而不需要得到output logit预测下一个token
   if (mode == InferenceMode::HYDRATE_KV_CACHE) {
     // only hydrate the KV cache and don't compute output logits
     CUDA_CHECK(cudaGetLastError()); // check for kernel launch errors

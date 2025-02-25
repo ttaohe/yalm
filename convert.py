@@ -130,6 +130,7 @@ def load_weights(model_files, dtype_str, metadata, tie_word_embeddings):
   normalizing the attention weights, and casting all tensors (except for all layer norm weights,
   which are converted to float32) to the specified dtype.
   """
+  w_dtype = set()
   weights = {}
   for model_path in model_files:
     ext = os.path.splitext(model_path)[1]
@@ -138,7 +139,9 @@ def load_weights(model_files, dtype_str, metadata, tie_word_embeddings):
         for k in f.keys():
           assert(k not in weights)
           weights[k] = f.get_tensor(k)
-  
+          w_dtype.add(weights[k].dtype)
+          
+  print("safetensors dtype: ", w_dtype)
   # Stolen from https://github.com/zeux/calm/blob/86dfb56daba5052c260a2dd86d296309cfbd4324/tools/convert.py#L223
   # huggingface permutes WQ and WK, this function reverses it
   # see https://github.com/huggingface/transformers/blob/b132c1703eb1c8bd9dfa4ad6a9be2bfd6ef819e9/src/transformers/models/llama/convert_llama_weights_to_hf.py#L122
@@ -243,6 +246,6 @@ if __name__ == "__main__":
   # add tokenizer tensors at the end (to maximize the chance of model tensor alignment)
   # note: we concatenate all bytes of all tokens into a single tensor
   tensors["tokenizer.tokens"] = torch.cat([torch.tensor([x for x in b] + [0], dtype=torch.uint8) for b in tokens])
-
+  import pdb;pdb.set_trace()
   print(f"Saving {len(tensors)} tensors...")
   save_file(tensors, args.output, metadata.to_dict())

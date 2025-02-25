@@ -133,7 +133,7 @@ int YALMData::from_file(const std::string& filename) {
     return -1;
   }
 
-  char* json_ptr = (char*)data + sizeof(uint64_t);
+  char* json_ptr = (char*)(data) + sizeof(uint64_t);
   void* bytes_ptr = (char*)data + sizeof(uint64_t) + json_size;
   size_t bytes_size = size - sizeof(uint64_t) - json_size;
 
